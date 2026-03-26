@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: any-video-downloader
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -b 0.0.0.0:$PORT main:app
+    autoDeploy: true
+

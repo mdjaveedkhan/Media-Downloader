@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ app_title }}</title>
+    <link rel="stylesheet" href="{{ url_for('styles_proxy') }}">
+</head>
+<body>
+<div class="app-shell">
+    <nav class="top-nav">
+        <div class="brand">AVD</div>
+        <div class="top-links">
+            <a href="/health" target="_blank" rel="noopener noreferrer">Health</a>
+            <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener noreferrer">Engine</a>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <h1>Any Video Downloader</h1>
+        <p>Fast and clean downloader for public links from YouTube, Instagram, LinkedIn, Snapchat, Twitter/X and more.</p>
+        <div class="hero-badges">
+            <span>High Quality</span>
+            <span>Video + MP3</span>
+            <span>Live Progress</span>
+            <span>Mobile Friendly</span>
+        </div>
+    </header>
+
+    <main class="card">
+        <div class="field-row">
+            <label for="url">Post/Video URL</label>
+            <input id="url" type="url" placeholder="Paste URL here" autocomplete="off">
+        </div>
+
+        <div class="field-row">
+            <label for="cookiesText">Cookies (optional, for private/age-restricted content)</label>
+            <textarea id="cookiesText" rows="5" placeholder="Paste Netscape cookies.txt content here"></textarea>
+        </div>
+
+        <div class="actions-row">
+            <button id="fetchBtn" class="btn btn-secondary">Fetch Info</button>
+            <button id="downloadBtn" class="btn btn-primary" disabled>Start Download</button>
+        </div>
+
+        <section id="metaSection" class="meta hidden">
+            <img id="thumbnail" src="" alt="Media thumbnail" class="thumb hidden">
+            <div class="meta-text">
+                <h2 id="titleText">-</h2>
+                <p><strong>Platform:</strong> <span id="platformText">-</span></p>
+                <p><strong>Duration:</strong> <span id="durationText">-</span></p>
+                <p><strong>Uploader:</strong> <span id="uploaderText">-</span></p>
+            </div>
+        </section>
+
+        <section class="controls hidden" id="controlsSection">
+            <div class="control-grid">
+                <div class="field-row">
+                    <label for="mediaType">Category</label>
+                    <select id="mediaType">
+                        <option value="video" selected>Video (default: highest)</option>
+                        <option value="mp3">MP3 (default: 320 kbps)</option>
+                    </select>
+                </div>
+
+                <div class="field-row" id="videoQualityWrap">
+                    <label for="videoQuality">Video Quality</label>
+                    <select id="videoQuality"></select>
+                </div>
+
+                <div class="field-row hidden" id="audioQualityWrap">
+                    <label for="audioQuality">MP3 Quality</label>
+                    <select id="audioQuality">
+                        <option value="320" selected>320 kbps (highest)</option>
+                        <option value="256">256 kbps</option>
+                        <option value="192">192 kbps</option>
+                        <option value="128">128 kbps</option>
+                    </select>
+                </div>
+
+                <div class="field-row">
+                    <label>Subtitle</label>
+                    <input value="English only (auto if available)" disabled>
+                </div>
+            </div>
+        </section>
+
+        <section id="progressSection" class="progress hidden">
+            <div class="progress-top">
+                <p><strong>Status:</strong> <span id="statusText">Idle</span></p>
+                <p><strong>Elapsed:</strong> <span id="elapsedText">00:00</span></p>
+            </div>
+            <div class="progress-bar-wrap">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div class="progress-stats">
+                <span id="percentText">0%</span>
+                <span id="sizeText">0 MB / 0 MB</span>
+                <span id="speedText">0 MB/s</span>
+                <span id="etaText">ETA: -</span>
+            </div>
+        </section>
+
+        <p id="message" class="message"></p>
+
+        <div class="note">
+            <p><strong>Note:</strong> Browser saves downloaded files to your system download folder based on browser settings.</p>
+            <p>Private or age-restricted content may need your cookies. Add cookies at page visit or in the field above.</p>
+        </div>
+
+        <footer class="site-footer">
+            <span>Built for personal use.</span>
+            <span>Respect creator rights and platform rules.</span>
+        </footer>
+    </main>
+</div>
+
+<script>
+    const urlInput = document.getElementById('url');
+    const fetchBtn = document.getElementById('fetchBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const cookiesText = document.getElementById('cookiesText');
+    const messageEl = document.getElementById('message');
+
+    const metaSection = document.getElementById('metaSection');
+    const controlsSection = document.getElementById('controlsSection');
+    const progressSection = document.getElementById('progressSection');
+
+    const thumbnail = document.getElementById('thumbnail');
+    const titleText = document.getElementById('titleText');
+    const platformText = document.getElementById('platformText');
+    const durationText = document.getElementById('durationText');
+    const uploaderText = document.getElementById('uploaderText');
+
+    const mediaType = document.getElementById('mediaType');
+    const videoQualityWrap = document.getElementById('videoQualityWrap');
+    const audioQualityWrap = document.getElementById('audioQualityWrap');
+    const videoQuality = document.getElementById('videoQuality');
+    const audioQuality = document.getElementById('audioQuality');
+
+    const statusText = document.getElementById('statusText');
+    const elapsedText = document.getElementById('elapsedText');
+    const progressBar = document.getElementById('progressBar');
+    const percentText = document.getElementById('percentText');
+    const sizeText = document.getElementById('sizeText');
+    const speedText = document.getElementById('speedText');
+    const etaText = document.getElementById('etaText');
+
+    let currentJobId = null;
+    let progressTimer = null;
+
+    function setMessage(text, isError = false) {
+        messageEl.textContent = text;
+        messageEl.classList.toggle('error', isError);
+    }
+
+    function toggleTypeControls() {
+        const isMp3 = mediaType.value === 'mp3';
+        videoQualityWrap.classList.toggle('hidden', isMp3);
+        audioQualityWrap.classList.toggle('hidden', !isMp3);
+    }
+
+    function resetProgressUI() {
+        progressBar.style.width = '0%';
+        percentText.textContent = '0%';
+        sizeText.textContent = '0 MB / 0 MB';
+        speedText.textContent = '0 MB/s';
+        etaText.textContent = 'ETA: -';
+        elapsedText.textContent = '00:00';
+        statusText.textContent = 'Idle';
+    }
+
+    function getCookiesText() {
+        const value = cookiesText.value.trim();
+        localStorage.setItem('avd_cookies_text', value);
+        return value;
+    }
+
+    function askCookiesOnVisit() {
+        const saved = localStorage.getItem('avd_cookies_text') || '';
+        if (saved) {
+            cookiesText.value = saved;
+            return;
+        }
+
+        const shouldAdd = window.confirm('Do you want to add cookies for private or age-restricted downloads?');
+        if (!shouldAdd) {
+            return;
+        }
+
+        const pasted = window.prompt('Paste your cookies.txt content (optional). You can leave empty and add it later.');
+        if (pasted && pasted.trim()) {
+            cookiesText.value = pasted.trim();
+            localStorage.setItem('avd_cookies_text', cookiesText.value);
+        }
+    }
+
+    function triggerAutoDownload(downloadUrl) {
+        if (!downloadUrl) return;
+        const anchor = document.createElement('a');
+        anchor.href = downloadUrl;
+        anchor.style.display = 'none';
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+    }
+
+    async function fetchInfo() {
+        const url = urlInput.value.trim();
+        if (!url) {
+            setMessage('Please paste a URL first.', true);
+            return;
+        }
+
+        setMessage('Fetching media info...');
+        downloadBtn.disabled = true;
+        fetchBtn.disabled = true;
+
+        try {
+            const response = await fetch('/api/info', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url,
+                    cookies_text: getCookiesText()
+                })
+            });
+
+            const data = await response.json();
+            if (!data.ok) {
+                throw new Error(data.error || 'Could not fetch media info.');
+            }
+
+            const info = data.info;
+
+            titleText.textContent = info.title || '-';
+            platformText.textContent = info.platform || '-';
+            durationText.textContent = info.duration_text || '-';
+            uploaderText.textContent = info.uploader || '-';
+
+            if (info.thumbnail) {
+                thumbnail.src = info.thumbnail_proxy || info.thumbnail;
+                thumbnail.onerror = () => {
+                    thumbnail.classList.add('hidden');
+                };
+                thumbnail.classList.remove('hidden');
+            } else {
+                thumbnail.classList.add('hidden');
+            }
+
+            videoQuality.innerHTML = '';
+            const bestOption = document.createElement('option');
+            bestOption.value = 'best';
+            bestOption.textContent = 'Best available (default high quality)';
+            videoQuality.appendChild(bestOption);
+
+            (info.video_options || []).forEach((fmt) => {
+                const option = document.createElement('option');
+                option.value = fmt.value;
+                option.textContent = fmt.label;
+                videoQuality.appendChild(option);
+            });
+
+            metaSection.classList.remove('hidden');
+            controlsSection.classList.remove('hidden');
+            progressSection.classList.remove('hidden');
+
+            resetProgressUI();
+            toggleTypeControls();
+            downloadBtn.disabled = false;
+            setMessage('Info loaded. Choose options and start download.');
+        } catch (error) {
+            setMessage(error.message || 'Failed to fetch info.', true);
+        } finally {
+            fetchBtn.disabled = false;
+        }
+    }
+
+    async function startDownload() {
+        const url = urlInput.value.trim();
+        if (!url) {
+            setMessage('Please paste a URL first.', true);
+            return;
+        }
+
+        resetProgressUI();
+        statusText.textContent = 'Starting';
+        setMessage('Starting download...');
+        downloadBtn.disabled = true;
+
+        try {
+            const payload = {
+                url,
+                media_type: mediaType.value,
+                quality: videoQuality.value || 'best',
+                audio_quality: audioQuality.value || '320',
+                cookies_text: getCookiesText()
+            };
+
+            const response = await fetch('/api/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json();
+            if (!data.ok) {
+                throw new Error(data.error || 'Could not start download.');
+            }
+
+            currentJobId = data.job_id;
+            if (progressTimer) {
+                clearInterval(progressTimer);
+            }
+            progressTimer = setInterval(updateProgress, 1000);
+        } catch (error) {
+            setMessage(error.message || 'Failed to start download.', true);
+            statusText.textContent = 'Failed';
+            downloadBtn.disabled = false;
+        }
+    }
+
+    async function updateProgress() {
+        if (!currentJobId) return;
+
+        try {
+            const response = await fetch(`/api/progress/${currentJobId}`);
+            const data = await response.json();
+            if (!data.ok) {
+                throw new Error(data.error || 'Progress unavailable.');
+            }
+
+            const job = data.job;
+            const p = job.progress;
+
+            const percent = Number(p.percent || 0).toFixed(2);
+            progressBar.style.width = `${Math.min(100, Number(percent))}%`;
+            percentText.textContent = `${percent}%`;
+            sizeText.textContent = `${p.downloaded_text} / ${p.total_text}`;
+            speedText.textContent = p.speed_text;
+            etaText.textContent = `ETA: ${p.eta_text}`;
+            elapsedText.textContent = p.elapsed_text;
+            statusText.textContent = p.status_text;
+
+            if (job.status === 'completed') {
+                clearInterval(progressTimer);
+                progressTimer = null;
+                setMessage('Download completed. Starting file download...');
+                triggerAutoDownload(job.download_url);
+                downloadBtn.disabled = false;
+            } else if (job.status === 'failed') {
+                clearInterval(progressTimer);
+                progressTimer = null;
+                setMessage(job.error || 'Download failed.', true);
+                statusText.textContent = 'Failed';
+                downloadBtn.disabled = false;
+            }
+        } catch (error) {
+            clearInterval(progressTimer);
+            progressTimer = null;
+            setMessage(error.message || 'Could not update progress.', true);
+            downloadBtn.disabled = false;
+        }
+    }
+
+    fetchBtn.addEventListener('click', fetchInfo);
+    downloadBtn.addEventListener('click', startDownload);
+    mediaType.addEventListener('change', toggleTypeControls);
+    askCookiesOnVisit();
+</script>
+</body>
+</html>
+
