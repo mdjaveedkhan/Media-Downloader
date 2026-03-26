@@ -148,6 +148,7 @@
 
     let currentJobId = null;
     let progressTimer = null;
+    let retryingWithCookies = false;
 
     function setMessage(text, isError = false) {
         messageEl.textContent = text;
@@ -195,6 +196,16 @@
         }
     }
 
+    function askForCookiesNow() {
+        const pasted = window.prompt('This URL needs login cookies. Paste your cookies.txt content to continue:');
+        if (!pasted || !pasted.trim()) {
+            return false;
+        }
+        cookiesText.value = pasted.trim();
+        localStorage.setItem('avd_cookies_text', cookiesText.value);
+        return true;
+    }
+
     function triggerAutoDownload(downloadUrl) {
         if (!downloadUrl) return;
         const anchor = document.createElement('a');
@@ -228,6 +239,14 @@
 
             const data = await response.json();
             if (!data.ok) {
+                if (data.needs_cookies && !getCookiesText() && !retryingWithCookies) {
+                    const accepted = window.confirm('This media requires login cookies. Add cookies now and retry?');
+                    if (accepted && askForCookiesNow()) {
+                        retryingWithCookies = true;
+                        await fetchInfo();
+                        return;
+                    }
+                }
                 throw new Error(data.error || 'Could not fetch media info.');
             }
 
@@ -272,6 +291,7 @@
         } catch (error) {
             setMessage(error.message || 'Failed to fetch info.', true);
         } finally {
+            retryingWithCookies = false;
             fetchBtn.disabled = false;
         }
     }
@@ -305,6 +325,13 @@
 
             const data = await response.json();
             if (!data.ok) {
+                if (data.needs_cookies && !getCookiesText()) {
+                    const accepted = window.confirm('Download requires login cookies. Add cookies now and retry?');
+                    if (accepted && askForCookiesNow()) {
+                        await startDownload();
+                        return;
+                    }
+                }
                 throw new Error(data.error || 'Could not start download.');
             }
 
@@ -351,6 +378,13 @@
             } else if (job.status === 'failed') {
                 clearInterval(progressTimer);
                 progressTimer = null;
+                if (job.needs_cookies && !getCookiesText()) {
+                    const accepted = window.confirm('This failed due to login/cookies. Add cookies now and retry download?');
+                    if (accepted && askForCookiesNow()) {
+                        await startDownload();
+                        return;
+                    }
+                }
                 setMessage(job.error || 'Download failed.', true);
                 statusText.textContent = 'Failed';
                 downloadBtn.disabled = false;

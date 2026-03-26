@@ -17,6 +17,15 @@ APP_TITLE = "Any Video Downloader"
 MAX_FILE_AGE_SECONDS = 60 * 60
 MAX_URL_LENGTH = 2048
 MAX_COOKIES_TEXT_BYTES = 2 * 1024 * 1024
+AUTH_ERROR_MARKERS = [
+    "sign in to confirm you\u2019re not a bot",
+    "use --cookies",
+    "use --cookies-from-browser",
+    "login required",
+    "rate-limit reached",
+    "age-restricted",
+    "authentication",
+]
 
 
 @dataclass
@@ -106,6 +115,18 @@ def validate_cookies_text(cookies_text: str) -> str:
     return text
 
 
+def is_auth_related_error(message: str) -> bool:
+    lowered = (message or "").lower()
+    return any(marker in lowered for marker in AUTH_ERROR_MARKERS)
+
+
+def resolve_cookies_text(cookies_text: str) -> str:
+    # Allows one-time server configuration so users do not paste cookies every visit.
+    if cookies_text:
+        return cookies_text
+    return (os.environ.get("AVD_COOKIES_TEXT") or "").strip()
+
+
 def cleanup_jobs() -> None:
     now = time.time()
     to_delete = []
@@ -182,6 +203,7 @@ def to_thumbnail_proxy(url: str) -> str:
 
 
 def get_media_info(url: str, cookies_text: str = "") -> Dict[str, Any]:
+    cookies_text = resolve_cookies_text(cookies_text)
     with tempfile.TemporaryDirectory(prefix="avd_info_") as tmp_dir:
         cookie_file = write_cookies_file(cookies_text, tmp_dir)
         ydl_opts = {
@@ -353,7 +375,7 @@ def run_download(job_id: str) -> None:
             "no_warnings": True,
             "progress_hooks": [make_progress_hook(job)],
         }
-        cookie_file = write_cookies_file(job.cookies_text, base_dir)
+        cookie_file = write_cookies_file(resolve_cookies_text(job.cookies_text), base_dir)
         if cookie_file:
             ydl_opts["cookiefile"] = cookie_file
 
@@ -454,12 +476,14 @@ def api_info():
         info = get_media_info(url, cookies_text=cookies_text)
         return jsonify({"ok": True, "info": info})
     except Exception as exc:
+        details = str(exc)
         return jsonify(
             {
                 "ok": False,
+                "needs_cookies": is_auth_related_error(details),
                 "error": (
                     "Could not fetch media info. Some private/age-restricted posts require login cookies "
-                    f"and may not be downloadable. Details: {exc}"
+                    f"and may not be downloadable. Details: {details}"
                 ),
             }
         ), 400
@@ -519,6 +543,7 @@ def api_progress(job_id: str):
                 "id": job.id,
                 "status": job.status,
                 "error": job.error,
+                "needs_cookies": is_auth_related_error(job.error or ""),
                 "title": job.title,
                 "filename": job.filename,
                 "progress": {
